@@ -3,7 +3,7 @@
 use PHPUnit\Framework\TestCase;
 use RapidWeb\SimpleCurrencyRates\SimpleCurrencyRates;
 
-class PoolIntegrationTest extends TestCase
+class BasicUsageTest extends TestCase
 {
     private $expectedCurrencies = ['GBP','XBT','AUD','BGN','BRL','CAD','CHF','CNY','CZK',
         'DKK','HKD','HRK','HUF','IDR','ILS','INR','JPY','KRW','MXN','MYR','NOK','NZD','PHP',
