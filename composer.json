@@ -1,0 +1,23 @@
+{
+    "name": "rapidwebltd/simple-currency-rates",
+    "description": "Provides simple access to current currency rates",
+    "type": "library",
+    "license": "LGPL3",
+    "authors": [
+        {
+            "name": "Jordan Hall",
+            "email": "jordan.hall@rapidweb.biz"
+        }
+    ],
+    "require": {
+        "rapidwebltd/rw-file-cache": "^1.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^5.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "RapidWeb\\SimpleCurrencyRates\\": "./src/"
+        }
+    }
+}
