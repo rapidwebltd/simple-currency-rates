@@ -28,6 +28,8 @@ class SimpleCurrencyRates
         $fiatRates = $this->getFiatRates($base);
 
         $rates = array_merge($rates, $fiatRates);
+        
+        ksort($rates);
 
         return $rates;  
     }
