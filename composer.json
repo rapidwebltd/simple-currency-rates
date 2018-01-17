@@ -1,6 +1,6 @@
 {
     "name": "rapidwebltd/simple-currency-rates",
-    "description": "Provides simple access to current currency rates",
+    "description": "This package provides simple access to current currency exchange rates.",
     "type": "library",
     "license": "LGPL3",
     "authors": [
