@@ -14,7 +14,7 @@ class SimpleCurrencyRates
     public function __construct()
     {
         $this->cache = new RWFileCache();
-        $this->cache->changeConfig(['cacheDirectory' => __DIR__.'/../cache/']);
+        $this->cache->changeConfig(['cacheDirectory' => '/tmp/simple-currency-rates-cache/']);
     }
 
     public function get($base)
