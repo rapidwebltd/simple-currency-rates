@@ -1,62 +1,108 @@
 # Simple Currency Rates
 
-This package provides simple access to current currency exchange rates.
+Simple Currency Rates provides current fiat and Bitcoin exchange rates through a small, framework-independent PHP API. It supports PHP 5.6 through current PHP releases.
+
+By default, fiat rates come from the keyless [Frankfurter API](https://frankfurter.dev/) and Bitcoin rates come from [Blockchain.com](https://www.blockchain.com/explorer/api/exchange_rates_api). Responses are cached on the local filesystem.
 
 ## Installation
 
-Simple Currency Rates can be easily installed using Composer. Just run the following command from the root of your project.
-
-```
+```bash
 composer require rapidwebltd/simple-currency-rates
 ```
 
-If you have never used the Composer dependency manager before, head to the [Composer website](https://getcomposer.org/) for more information on how to get started.
-
 ## Usage
 
-To get the current exchange rates, just create a new `SimpleCurrencyRates` object and call its `get` method with the base currency of your choice (e.g. GBP, USD, EUR). The following code snippet shows how to do this.
-
 ```php
-$rates = (new SimpleCurrencyRates)->get('GBP');
+use RapidWeb\SimpleCurrencyRates\SimpleCurrencyRates;
+
+$rates = (new SimpleCurrencyRates())->get('GBP');
 ```
 
-Exchange rates are returned as an array in the format `['CURRENCYCODE' => RATE, ...]`. An example rates array is shown below.
+The base currency is normalised to uppercase and always has a rate of `1.0`. Rates are returned as a currency-code-keyed array sorted alphabetically:
 
 ```php
-Array
-(
-    [AUD] => 1.7307
-    [BGN] => 2.201
-    [BRL] => 4.423
-    [CAD] => 1.7099
-    [CHF] => 1.3274
-    [CNY] => 8.8656
-    [CZK] => 28.715
-    [DKK] => 8.3831
-    [EUR] => 1.1254
-    [GBP] => 1
-    [HKD] => 10.767
-    [HRK] => 8.3542
-    [HUF] => 347.46
-    [IDR] => 18357
-    [ILS] => 4.7002
-    [INR] => 88.15
-    [JPY] => 152.37
-    [KRW] => 1465.7
-    [MXN] => 25.837
-    [MYR] => 5.457
-    [NOK] => 10.838
-    [NZD] => 1.8915
-    [PHP] => 69.704
-    [PLN] => 4.6942
-    [RON] => 5.231
-    [RUB] => 77.678
-    [SEK] => 11.054
-    [SGD] => 1.8214
-    [THB] => 44.015
-    [TRY] => 5.2259
-    [USD] => 1.3763
-    [XBT] => 0.00013526
-    [ZAR] => 16.877
-)
+[
+    'EUR' => 1.16,
+    'GBP' => 1.0,
+    'USD' => 1.35,
+    'XBT' => 0.00001234,
+]
+```
+
+The base must be a three-letter currency code. Network failures and invalid provider responses throw `RateSourceException` instead of returning incomplete data.
+
+## Using another cache
+
+The constructor and `setCache()` accept PSR-16 caches, PSR-6 cache pools, and compatible objects exposing `get`, `set`, and optionally `has`. No PSR package is forced on applications that use the built-in cache.
+
+```php
+$rates = new SimpleCurrencyRates($psr16Cache);
+
+// Or replace it later.
+$rates->setCache($psr6CachePool);
+```
+
+To change the built-in cache directory:
+
+```php
+use RapidWeb\SimpleCurrencyRates\Cache\FilesystemCache;
+
+$rates = new SimpleCurrencyRates(
+    new FilesystemCache('/var/cache/my-application/currency-rates')
+);
+```
+
+## Using custom rate sources
+
+A source implements `RateSourceInterface` and returns positive rates keyed by three-letter currency code. `getCacheTtl()` returns its cache lifetime in seconds; return `0` to disable caching.
+
+```php
+use RapidWeb\SimpleCurrencyRates\Contracts\RateSourceInterface;
+
+class CompanyRateSource implements RateSourceInterface
+{
+    public function getRates($base)
+    {
+        return [
+            'EUR' => 1.16,
+            'USD' => 1.35,
+        ];
+    }
+
+    public function getCacheTtl()
+    {
+        return 300;
+    }
+}
+```
+
+Pass sources as the second constructor argument, replace them with `setSources()`, or append one with `addSource()`:
+
+```php
+$rates = new SimpleCurrencyRates($cache, [
+    new CompanyRateSource(),
+]);
+
+$rates
+    ->setSources([new CompanyRateSource()])
+    ->addSource($anotherSource);
+```
+
+When multiple sources return the same currency, the later source wins. The requested base currency is always reset to `1.0`.
+
+The bundled `FrankfurterRateSource` and `BlockchainBitcoinRateSource` accept an optional callable HTTP client, which is useful for application-specific transports and deterministic tests:
+
+```php
+use RapidWeb\SimpleCurrencyRates\Sources\FrankfurterRateSource;
+
+$source = new FrankfurterRateSource(function ($url) use ($httpClient) {
+    return $httpClient->get($url)->getBody()->getContents();
+});
+```
+
+## Testing
+
+```bash
+composer install
+vendor/bin/phpunit
 ```

@@ -1,42 +1,119 @@
 <?php
 
 use PHPUnit\Framework\TestCase;
+use RapidWeb\SimpleCurrencyRates\Contracts\RateSourceInterface;
 use RapidWeb\SimpleCurrencyRates\SimpleCurrencyRates;
+use RapidWeb\SimpleCurrencyRates\Sources\BlockchainBitcoinRateSource;
+use RapidWeb\SimpleCurrencyRates\Sources\FrankfurterRateSource;
 
 class BasicUsageTest extends TestCase
 {
-    private $expectedCurrencies = ['GBP','XBT','AUD','BGN','BRL','CAD','CHF','CNY','CZK',
-        'DKK','HKD','HRK','HUF','IDR','ILS','INR','JPY','KRW','MXN','MYR','NOK','NZD','PHP',
-        'PLN','RON','RUB','SEK','SGD','THB','TRY','USD','ZAR','EUR'];
-
-    public function testExpectedCurrenciesArePresent()
+    public function testRatesFromCustomSourcesAreNormalisedAndSorted()
     {
-        $rates = (new SimpleCurrencyRates())->get('GBP');
+        $rates = (new SimpleCurrencyRates(new ArrayTestCache(), [
+            new ArrayRateSource(['usd' => '1.25', 'EUR' => 1.1]),
+        ]))->get('gbp');
 
-        foreach($this->expectedCurrencies as $expectedCurrency) {
-            $this->assertTrue(array_key_exists($expectedCurrency, $rates), 'The expected currency code ('.$expectedCurrency.') is missing.');
-        }
-        
+        $this->assertSame(['EUR', 'GBP', 'USD'], array_keys($rates));
+        $this->assertSame(1.0, $rates['GBP']);
+        $this->assertSame(1.25, $rates['USD']);
     }
 
-    public function testBaseCurrencyIsEqualToOne()
+    public function testSourceResultsAreCached()
     {
-        $rates = (new SimpleCurrencyRates())->get('GBP');
+        $source = new ArrayRateSource(['USD' => 1.25]);
+        $rates = new SimpleCurrencyRates(new ArrayTestCache(), [$source]);
 
-        $this->assertEquals(1, $rates['GBP'], 'Base currency does not equal 1.');
+        $rates->get('GBP');
+        $rates->get('GBP');
+
+        $this->assertSame(1, $source->calls);
     }
 
-    public function testRatesArrayIsFormattedCorrectly()
+    public function testSourcesCanBeReplacedAndAddedFluently()
     {
-        $rates = (new SimpleCurrencyRates())->get('GBP');
+        $rates = new SimpleCurrencyRates(new ArrayTestCache(), []);
+        $rates->addSource(new ArrayRateSource(['USD' => 1.25]));
 
-        $this->assertTrue(is_array($rates));
+        $this->assertSame(1.25, $rates->get('GBP')['USD']);
+    }
 
-        foreach($rates as $currency => $rate) {
-            $this->assertTrue(is_string($currency), 'Currency code ('.$currency.') is not a string.');
-            $this->assertEquals(3, strlen($currency), 'Currency code ('.$currency.') is not 3 characters.');
-            $this->assertTrue(is_float($rate), 'Currency rate (for '.$currency.') is not a float.');
-            $this->assertTrue($rate>0, 'Currency rate (for '.$currency.') must be greater than zero.');
-        }
+    public function testFrankfurterResponseIsParsed()
+    {
+        $source = new FrankfurterRateSource(function ($url) {
+            $this->assertStringStartsWith('https://api.frankfurter.dev/v1/latest?base=GBP', $url);
+
+            return '{"base":"GBP","rates":{"EUR":1.16,"USD":1.35}}';
+        });
+
+        $rates = (new SimpleCurrencyRates(new ArrayTestCache(), [$source]))->get('GBP');
+
+        $this->assertSame(1.16, $rates['EUR']);
+        $this->assertSame(1.35, $rates['USD']);
+    }
+
+    public function testBlockchainResponseIsParsed()
+    {
+        $source = new BlockchainBitcoinRateSource(function ($url) {
+            $this->assertStringStartsWith('https://blockchain.info/tobtc?currency=GBP', $url);
+
+            return '0.00001234';
+        });
+
+        $rates = (new SimpleCurrencyRates(new ArrayTestCache(), [$source]))->get('GBP');
+
+        $this->assertSame(0.00001234, $rates['XBT']);
+    }
+
+    public function testInvalidBaseCurrencyIsRejected()
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new SimpleCurrencyRates(new ArrayTestCache(), []))->get('sterling');
+    }
+}
+
+class ArrayRateSource implements RateSourceInterface
+{
+    public $calls = 0;
+    private $rates;
+
+    public function __construct(array $rates)
+    {
+        $this->rates = $rates;
+    }
+
+    public function getRates($base)
+    {
+        ++$this->calls;
+
+        return $this->rates;
+    }
+
+    public function getCacheTtl()
+    {
+        return 60;
+    }
+}
+
+class ArrayTestCache
+{
+    private $values = [];
+
+    public function get($key, $default = null)
+    {
+        return array_key_exists($key, $this->values) ? $this->values[$key] : $default;
+    }
+
+    public function has($key)
+    {
+        return array_key_exists($key, $this->values);
+    }
+
+    public function set($key, $value, $ttl = null)
+    {
+        $this->values[$key] = $value;
+
+        return true;
     }
 }

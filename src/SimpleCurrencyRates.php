@@ -2,71 +2,102 @@
 
 namespace RapidWeb\SimpleCurrencyRates;
 
-use \rapidweb\RWFileCache\RWFileCache;
+use InvalidArgumentException;
+use RapidWeb\SimpleCurrencyRates\Cache\CacheAdapter;
+use RapidWeb\SimpleCurrencyRates\Cache\FilesystemCache;
+use RapidWeb\SimpleCurrencyRates\Contracts\RateSourceInterface;
+use RapidWeb\SimpleCurrencyRates\Sources\BlockchainBitcoinRateSource;
+use RapidWeb\SimpleCurrencyRates\Sources\FrankfurterRateSource;
+use UnexpectedValueException;
 
 class SimpleCurrencyRates
 {
-    const FIXER_IO_RATES_CACHE_EXPIRY_MINUTES = 60;
-    const BLOCKCHAIN_RATE_CACHE_EXPIRY_MINUTES = 15;
-
     private $cache;
+    private $sources = [];
 
-    public function __construct()
+    public function __construct($cache = null, array $sources = null)
     {
-        $this->cache = new RWFileCache();
-        $this->cache->changeConfig(['cacheDirectory' => '/tmp/simple-currency-rates-cache/']);
+        $this->setCache($cache ?: new FilesystemCache());
+        $this->setSources($sources === null ? $this->getDefaultSources() : $sources);
+    }
+
+    public function setCache($cache)
+    {
+        $this->cache = new CacheAdapter($cache);
+
+        return $this;
+    }
+
+    public function setSources(array $sources)
+    {
+        $this->sources = [];
+
+        foreach ($sources as $source) {
+            $this->addSource($source);
+        }
+
+        return $this;
+    }
+
+    public function addSource(RateSourceInterface $source)
+    {
+        $this->sources[] = $source;
+
+        return $this;
     }
 
     public function get($base)
     {
+        if (!is_string($base)) {
+            throw new InvalidArgumentException('The base currency must be a three-letter currency code.');
+        }
+
+        $base = strtoupper(trim($base));
+
+        if (!preg_match('/^[A-Z]{3}$/D', $base)) {
+            throw new InvalidArgumentException('The base currency must be a three-letter currency code.');
+        }
+
         $rates = [];
 
-        $rates[$base] = (float) 1.00;
+        foreach ($this->sources as $index => $source) {
+            $cacheKey = 'simple_currency_rates_'.sha1($index.'|'.get_class($source).'|'.$base);
+            $sourceRates = $this->cache->get($cacheKey, $found);
 
-        $rates['XBT'] = $this->getBitcoinRate($base);
+            if (!$found) {
+                $sourceRates = $source->getRates($base);
 
-        $fiatRates = $this->getFiatRates($base);
+                if (!is_array($sourceRates)) {
+                    throw new UnexpectedValueException('Rate sources must return an array.');
+                }
 
-        $rates = array_merge($rates, $fiatRates);
-        
+                if ($source->getCacheTtl() > 0) {
+                    $this->cache->set($cacheKey, $sourceRates, $source->getCacheTtl());
+                }
+            }
+
+            foreach ($sourceRates as $currency => $rate) {
+                $currency = strtoupper((string) $currency);
+
+                if (!preg_match('/^[A-Z]{3}$/D', $currency) || !is_numeric($rate) || $rate <= 0) {
+                    throw new UnexpectedValueException('Rate sources must return positive rates keyed by three-letter currency codes.');
+                }
+
+                $rates[$currency] = (float) $rate;
+            }
+        }
+
+        $rates[$base] = (float) 1.0;
         ksort($rates);
 
-        return $rates;  
-    }
-
-    private function getBitcoinRate($base)
-    {
-        $cacheKey = 'blockchainRate'.$base;
-
-        $rate = $this->cache->get($cacheKey);
-
-        if ($rate) {
-            return $rate;
-        }
-
-        $rate = (float) file_get_contents('https://blockchain.info/tobtc?currency='.$base.'&value=1');
-
-        $this->cache->set($cacheKey, $rate, self::FIXER_IO_RATES_CACHE_EXPIRY_MINUTES * 60);
-
-        return $rate;
-    }
-
-    private function getFiatRates($base)
-    {
-        $cacheKey = 'fixerIORates'.$base;
-
-        $rates = $this->cache->get($cacheKey);
-
-        if ($rates) {
-            return $rates;
-        }
-
-        $response = file_get_contents('https://api.fixer.io/latest?base='.$base);
-        $response = json_decode($response, true);
-        $rates = isset($response['rates']) ? $response['rates'] : [];
-
-        $this->cache->set($cacheKey, $rates, self::FIXER_IO_RATES_CACHE_EXPIRY_MINUTES * 60);
-
         return $rates;
+    }
+
+    private function getDefaultSources()
+    {
+        return [
+            new FrankfurterRateSource(),
+            new BlockchainBitcoinRateSource(),
+        ];
     }
 }
